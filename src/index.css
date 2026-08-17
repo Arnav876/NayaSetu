@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  font-family: 'Inter', sans-serif;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 overflow-x-hidden;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(30, 58, 138, 0.15) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(180, 83, 9, 0.08) 0px, transparent 50%),
+    radial-gradient(at 50% 0%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
+  background-attachment: fixed;
+}
+
+/* Glassmorphism utilities */
+.glass-panel {
+  @apply bg-slate-900/65 border border-slate-800/80 backdrop-blur-md rounded-2xl shadow-glass;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel-hover:hover {
+  @apply border-slate-700/85 bg-slate-900/80 shadow-lg shadow-primary-500/5 -translate-y-0.5;
+}
+
+.glass-card {
+  @apply bg-slate-850/40 border border-slate-800/60 backdrop-blur-sm rounded-xl;
+  transition: all 0.2s ease-in-out;
+}
+
+.glass-card:hover {
+  @apply border-slate-700/50 bg-slate-850/60;
+}
+
+.glass-input {
+  @apply bg-slate-900/90 border border-slate-800 rounded-lg py-2 px-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 transition-all duration-200;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-slate-950;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-800 rounded-full hover:bg-slate-700 transition-all;
+}
+
+/* Animations */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 10px rgba(244, 63, 94, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
+  }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Keyframe for subtle timeline dot grow */
+@keyframes dot-grow {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+.dot-active {
+  animation: dot-grow 3s ease-in-out infinite;
+}
+
+/* Hide default scrollbar for kiosk mode but keep scrollable */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Glass table headers */
+th {
+  @apply text-slate-400 font-medium text-xs uppercase tracking-wider py-3 px-4 text-left border-b border-slate-800 bg-slate-900/40;
+}
+
+td {
+  @apply py-4 px-4 text-sm border-b border-slate-800/40;
+}
+
+tr:hover td {
+  @apply bg-slate-900/20;
+}
