@@ -533,7 +533,7 @@ app.get('/api/mock-egov/sync', authenticateToken, requireRole(['prison_official'
 });
 
 // Server Listen
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
   console.log(`[Express] NyayaSetu API server running on port ${PORT}`);
 });
