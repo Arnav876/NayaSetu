@@ -129,6 +129,20 @@ function initDb() {
       accessed_fields TEXT,
       timestamp TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS user_activity_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      username TEXT NOT NULL,
+      role TEXT,
+      action_type TEXT NOT NULL, -- 'LOGIN_SUCCESS', 'LOGIN_FAILED', 'REGISTER', 'LOGOUT', 'API_REQUEST', 'VIEW_PAGE', 'VOICE_CHECKIN', 'CHAT_QUERY'
+      action_detail TEXT,
+      ip_address TEXT,
+      user_agent TEXT,
+      status TEXT, -- 'SUCCESS', 'FAILED', 'INFO'
+      metadata TEXT, -- JSON string
+      timestamp TEXT NOT NULL
+    );
   `);
   console.log('[Database] Database tables initialized successfully.');
 }

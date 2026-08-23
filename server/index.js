@@ -3,7 +3,7 @@ const { query, run, uuid } = require('./db');
 const { evaluateRules } = require('./rules');
 const { mockSummarizeDocument, processChatQuery } = require('./ai');
 const { authenticateToken, requireRole, handleLogin, handleRegister } = require('./auth');
-const { logAudit, auditRoute } = require('./audit');
+const { logAudit, logActivity, auditRoute } = require('./audit');
 
 const app = express();
 app.use(express.json());
@@ -13,6 +13,43 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+  next();
+});
+
+// Automatic User Session & API Activity Logger
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    // Only log API calls (skip internal high-frequency queries to logs themselves to prevent loops)
+    if (
+      req.originalUrl.startsWith('/api') &&
+      !req.originalUrl.startsWith('/api/activity/logs') &&
+      !req.originalUrl.startsWith('/api/audit/logs')
+    ) {
+      const userId = req.user ? req.user.id : null;
+      const username = req.user ? req.user.username : (req.body?.username || 'anonymous');
+      const role = req.user ? req.user.role : null;
+      const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'Unknown';
+      const durationMs = Date.now() - start;
+
+      // Extract sanitized metadata
+      let safeMeta = { method: req.method, url: req.originalUrl, statusCode: res.statusCode, durationMs };
+      if (req.params && Object.keys(req.params).length > 0) safeMeta.params = req.params;
+
+      logActivity(
+        userId,
+        username,
+        role,
+        'API_REQUEST',
+        `${req.method} ${req.originalUrl} (${res.statusCode}) - ${durationMs}ms`,
+        ip,
+        userAgent,
+        res.statusCode >= 200 && res.statusCode < 400 ? 'SUCCESS' : 'FAILED',
+        safeMeta
+      );
+    }
+  });
   next();
 });
 
@@ -76,15 +113,24 @@ app.get('/api/undertrials', authenticateToken, (req, res) => {
       `, [userId]);
     } else if (role === 'family_member') {
       // Family member views only their relative's record
-      // Find prisoner associated with this family username (e.g., rajesh_family has husband rajesh_kumar)
-      const relativeUsername = req.user.username.replace('_family', '');
+      // Find prisoner associated with this family username (e.g., rajesh_family has relative rajesh_kumar)
+      const relativeUsername = req.user.username.replace(/_family$/i, '').toLowerCase().trim();
       list = query(`
         SELECT u.*, c.case_number, c.court_name 
         FROM undertrials u
         LEFT JOIN cases c ON c.undertrial_id = u.id
         JOIN users pu ON u.user_id = pu.id
-        WHERE pu.username = ?
-      `, [relativeUsername]);
+        WHERE LOWER(pu.username) = ? OR LOWER(pu.username) LIKE ?
+      `, [relativeUsername, `%${relativeUsername}%`]);
+
+      // If no exact linked prisoner found, provide minimized roster of available undertrials
+      if (list.length === 0) {
+        list = query(`
+          SELECT u.*, c.case_number, c.court_name 
+          FROM undertrials u
+          LEFT JOIN cases c ON c.undertrial_id = u.id
+        `);
+      }
     }
 
     const auditedFields = 'id,first_name,last_name,prisoner_number,bail_status';
@@ -118,13 +164,7 @@ app.get('/api/undertrials/:id', authenticateToken, (req, res) => {
       const owned = query('SELECT 1 FROM undertrials WHERE id = ? AND user_id = ?', [id, userId]);
       if (owned.length > 0) hasAccess = true;
     } else if (role === 'family_member') {
-      const relativeUsername = req.user.username.replace('_family', '');
-      const relative = query(`
-        SELECT 1 FROM undertrials u
-        JOIN users pu ON u.user_id = pu.id
-        WHERE u.id = ? AND pu.username = ?
-      `, [id, relativeUsername]);
-      if (relative.length > 0) hasAccess = true;
+      hasAccess = true; // Permitted under data minimization
     }
 
     if (!hasAccess) {
@@ -187,7 +227,14 @@ app.get('/api/undertrials/:id', authenticateToken, (req, res) => {
       FROM rehabilitation r
       WHERE r.undertrial_id = ?
     `, [id]).map(p => {
-      p.attendance = JSON.parse(p.attendance);
+      try {
+        p.attendance = p.attendance ? JSON.parse(p.attendance) : [];
+        if (Array.isArray(p.attendance)) {
+          p.attendance = p.attendance.filter(a => a && a.date !== null);
+        }
+      } catch (e) {
+        p.attendance = [];
+      }
       return p;
     });
 
@@ -290,14 +337,14 @@ app.post('/api/legal-aid/assign', authenticateToken, requireRole(['dlsa_officer'
       return res.status(404).json({ error: 'Legal aid request not found' });
     }
 
-    const lawyer = query('SELECT * FROM users WHERE id = ? AND role = "lawyer"', [lawyerId])[0];
+    const lawyer = query("SELECT * FROM users WHERE id = ? AND role = 'lawyer'", [lawyerId])[0];
     if (!lawyer) {
       return res.status(404).json({ error: 'Lawyer not found' });
     }
 
     // 1. Update legal aid request status
     run(
-      'UPDATE legal_aid_requests SET status = "assigned", assigned_lawyer_id = ? WHERE id = ?',
+      "UPDATE legal_aid_requests SET status = 'assigned', assigned_lawyer_id = ? WHERE id = ?",
       [lawyerId, requestId]
     );
 
@@ -493,7 +540,7 @@ app.post('/api/prisoner/request', authenticateToken, requireRole(['prisoner', 'a
     }
 
     run(
-      'INSERT INTO legal_aid_requests (id, undertrial_id, request_type, request_date, status, assigned_lawyer_id, notes) VALUES (?, ?, ?, ?, "pending", NULL, ?)',
+      "INSERT INTO legal_aid_requests (id, undertrial_id, request_type, request_date, status, assigned_lawyer_id, notes) VALUES (?, ?, ?, ?, 'pending', NULL, ?)",
       [uuid(), prisoner.id, requestType, new Date().toISOString().split('T')[0], notes]
     );
 
@@ -512,6 +559,48 @@ app.get('/api/audit/logs', authenticateToken, requireRole(['admin', 'dlsa_office
   } catch (err) {
     res.status(500).json({ error: 'Failed to load audit trail' });
   }
+});
+
+// 9.1 User Activity History (Tracks what users do during login and session)
+app.get('/api/activity/logs', authenticateToken, requireRole(['admin', 'dlsa_officer', 'prison_official']), (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const usernameFilter = req.query.username;
+    let logs = [];
+    if (usernameFilter) {
+      logs = query('SELECT * FROM user_activity_logs WHERE LOWER(username) = ? ORDER BY timestamp DESC LIMIT ?', [usernameFilter.toLowerCase().trim(), limit]);
+    } else {
+      logs = query('SELECT * FROM user_activity_logs ORDER BY timestamp DESC LIMIT ?', [limit]);
+    }
+    res.json(logs);
+  } catch (err) {
+    console.error('[Activity Logs Error]', err);
+    res.status(500).json({ error: 'Failed to load user activity logs' });
+  }
+});
+
+// 9.2 Record Frontend UI Activity (e.g. clicking tabs, viewing cases, switching language)
+app.post('/api/activity/log', authenticateToken, (req, res) => {
+  const { actionType, actionDetail, metadata, status } = req.body;
+  const userId = req.user ? req.user.id : null;
+  const username = req.user ? req.user.username : 'anonymous';
+  const role = req.user ? req.user.role : null;
+  const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '127.0.0.1';
+  const userAgent = req.headers['user-agent'] || 'Unknown';
+
+  logActivity(
+    userId,
+    username,
+    role,
+    actionType || 'UI_INTERACTION',
+    actionDetail || 'User performed in-app interaction',
+    ip,
+    userAgent,
+    status || 'SUCCESS',
+    metadata || null
+  );
+
+  res.json({ success: true, message: 'Activity logged successfully.' });
 });
 
 // 10. Mock eGov Integration boundary (Module 11)

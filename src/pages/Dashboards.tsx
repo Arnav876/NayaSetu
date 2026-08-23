@@ -1274,20 +1274,30 @@ export const FamilyView: React.FC<DashboardProps> = ({ user, token, onLogout }) 
 };
 
 // ----------------------------------------------------
-// 7. SYSTEM ADMIN DASHBOARD (AUDIT TRAILS)
+// 7. SYSTEM ADMIN DASHBOARD (AUDIT & ACTIVITY TRAILS)
 // ----------------------------------------------------
 export const AdminDashboard: React.FC<DashboardProps> = ({ user, token, onLogout }) => {
+  const [activeTab, setActiveTab] = useState<'activity' | 'audit'>('activity');
   const [logs, setLogs] = useState<any[]>([]);
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
+  const [filterUser, setFilterUser] = useState('');
 
   const fetchLogs = async () => {
     setLoadingLogs(true);
     try {
-      const res = await fetch('/api/audit/logs', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      setLogs(data);
+      const [auditRes, activityRes] = await Promise.all([
+        fetch('/api/audit/logs', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`/api/activity/logs${filterUser ? `?username=${encodeURIComponent(filterUser)}` : ''}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+      ]);
+      const auditData = await auditRes.json();
+      const activityData = await activityRes.json();
+      if (Array.isArray(auditData)) setLogs(auditData);
+      if (Array.isArray(activityData)) setActivityLogs(activityData);
     } catch (err) {
       console.error(err);
     } finally {
@@ -1297,7 +1307,7 @@ export const AdminDashboard: React.FC<DashboardProps> = ({ user, token, onLogout
 
   useEffect(() => {
     fetchLogs();
-  }, []);
+  }, [filterUser]);
 
   return (
     <div className="space-y-6">
@@ -1306,9 +1316,9 @@ export const AdminDashboard: React.FC<DashboardProps> = ({ user, token, onLogout
         <div className="text-left">
           <h2 className="text-lg font-bold text-slate-100 flex items-center gap-1.5">
             <KeyRound className="w-5 h-5 text-rose-500" />
-            Security & Audit Trail Console
+            Security & Activity Audit Console
           </h2>
-          <p className="text-xs text-slate-400">System Logs • Logged in as: {user.full_name}</p>
+          <p className="text-xs text-slate-400">Real-time user session tracking • Logged in as: {user.full_name}</p>
         </div>
         <button
           onClick={onLogout}
@@ -1319,10 +1329,45 @@ export const AdminDashboard: React.FC<DashboardProps> = ({ user, token, onLogout
         </button>
       </div>
 
-      {/* Audit Logs Table */}
+      {/* Navigation Tabs */}
+      <div className="flex gap-2 border-b border-slate-800 pb-2">
+        <button
+          onClick={() => setActiveTab('activity')}
+          className={`py-2 px-4 rounded-lg text-xs font-bold transition-all ${
+            activeTab === 'activity'
+              ? 'bg-primary-600/30 text-primary-300 border border-primary-500/40'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          User Activity & Login Trail ({activityLogs.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('audit')}
+          className={`py-2 px-4 rounded-lg text-xs font-bold transition-all ${
+            activeTab === 'audit'
+              ? 'bg-primary-600/30 text-primary-300 border border-primary-500/40'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Database Audit Records ({logs.length})
+        </button>
+      </div>
+
+      {/* Main Table Panel */}
       <div className="glass-panel p-5 space-y-4">
-        <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-          <h3 className="font-bold text-slate-200 text-sm">Security Audit Trail logs (RBAC verified)</h3>
+        <div className="flex flex-wrap justify-between items-center gap-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-3">
+            <h3 className="font-bold text-slate-200 text-sm">
+              {activeTab === 'activity' ? 'Live User Activity & Session Log' : 'Database Access & RBAC Audit Trail'}
+            </h3>
+            <input
+              type="text"
+              placeholder="Filter by username..."
+              value={filterUser}
+              onChange={(e) => setFilterUser(e.target.value)}
+              className="glass-input text-[11px] py-1 px-2.5 w-44"
+            />
+          </div>
           <button
             onClick={fetchLogs}
             disabled={loadingLogs}
@@ -1332,40 +1377,99 @@ export const AdminDashboard: React.FC<DashboardProps> = ({ user, token, onLogout
           </button>
         </div>
 
-        <div className="overflow-x-auto w-full max-h-[420px] overflow-y-auto no-scrollbar">
-          <table className="w-full text-left">
-            <thead>
-              <tr>
-                <th>Operator</th>
-                <th>Action</th>
-                <th>Affected Table</th>
-                <th>Affected Record</th>
-                <th>Accessed Fields</th>
-                <th>Timestamp</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/40 text-xs font-mono">
-              {logs.length === 0 ? (
+        {activeTab === 'activity' ? (
+          <div className="overflow-x-auto w-full max-h-[460px] overflow-y-auto no-scrollbar">
+            <table className="w-full text-left">
+              <thead>
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-slate-500 italic">
-                    No logs recorded in the audit trail database.
-                  </td>
+                  <th>User / Role</th>
+                  <th>Action Type</th>
+                  <th>Details</th>
+                  <th>IP Address</th>
+                  <th>Status</th>
+                  <th>Timestamp</th>
                 </tr>
-              ) : (
-                logs.map(log => (
-                  <tr key={log.id} className="hover:bg-slate-900/10">
-                    <td className="font-bold text-slate-200">{log.username} <span className="text-[10px] text-slate-500 font-normal">({log.user_id?.substring(0, 8)})</span></td>
-                    <td className="text-amber-400 font-semibold">{log.action}</td>
-                    <td className="text-slate-300">{log.target_table || 'N/A'}</td>
-                    <td className="text-sky-400">{log.record_id ? log.record_id.substring(0, 8) : 'Global'}</td>
-                    <td className="text-slate-400 max-w-xs truncate" title={log.accessed_fields}>{log.accessed_fields || 'None'}</td>
-                    <td className="text-slate-400 font-sans text-[11px]">{log.timestamp}</td>
+              </thead>
+              <tbody className="divide-y divide-slate-800/40 text-xs font-mono">
+                {activityLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-6 text-center text-slate-500 italic">
+                      No user activity logs found.
+                    </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : (
+                  activityLogs.map(log => (
+                    <tr key={log.id} className="hover:bg-slate-900/10">
+                      <td className="font-bold text-slate-200">
+                        {log.username}
+                        {log.role && (
+                          <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-sans">
+                            {log.role}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${
+                          log.action_type.includes('LOGIN_SUCCESS') ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                          log.action_type.includes('LOGIN_FAILED') ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                          log.action_type === 'REGISTER' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
+                          'bg-sky-500/10 text-sky-400'
+                        }`}>
+                          {log.action_type}
+                        </span>
+                      </td>
+                      <td className="text-slate-300 max-w-sm truncate" title={log.action_detail}>
+                        {log.action_detail || 'N/A'}
+                      </td>
+                      <td className="text-slate-400 text-[11px]">{log.ip_address || '127.0.0.1'}</td>
+                      <td>
+                        <span className={`text-[10px] ${log.status === 'SUCCESS' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {log.status}
+                        </span>
+                      </td>
+                      <td className="text-slate-400 font-sans text-[11px]">{log.timestamp}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="overflow-x-auto w-full max-h-[460px] overflow-y-auto no-scrollbar">
+            <table className="w-full text-left">
+              <thead>
+                <tr>
+                  <th>Operator</th>
+                  <th>Action</th>
+                  <th>Affected Table</th>
+                  <th>Affected Record</th>
+                  <th>Accessed Fields</th>
+                  <th>Timestamp</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/40 text-xs font-mono">
+                {logs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-6 text-center text-slate-500 italic">
+                      No logs recorded in the audit trail database.
+                    </td>
+                  </tr>
+                ) : (
+                  logs.map(log => (
+                    <tr key={log.id} className="hover:bg-slate-900/10">
+                      <td className="font-bold text-slate-200">{log.username} <span className="text-[10px] text-slate-500 font-normal">({log.user_id?.substring(0, 8)})</span></td>
+                      <td className="text-amber-400 font-semibold">{log.action}</td>
+                      <td className="text-slate-300">{log.target_table || 'N/A'}</td>
+                      <td className="text-sky-400">{log.record_id ? log.record_id.substring(0, 8) : 'Global'}</td>
+                      <td className="text-slate-400 max-w-xs truncate" title={log.accessed_fields}>{log.accessed_fields || 'None'}</td>
+                      <td className="text-slate-400 font-sans text-[11px]">{log.timestamp}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

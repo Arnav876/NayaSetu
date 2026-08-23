@@ -26,6 +26,53 @@ function logAudit(userId, username, action, targetTable = null, recordId = null,
 }
 
 /**
+ * Log user activity (login, logout, navigation, actions) to database
+ */
+function logActivity(userId, username, role, actionType, actionDetail = null, ipAddress = null, userAgent = null, status = 'SUCCESS', metadata = null) {
+  try {
+    const timestamp = new Date().toISOString();
+    const metaStr = metadata ? (typeof metadata === 'string' ? metadata : JSON.stringify(metadata)) : null;
+
+    // 1. Insert into user_activity_logs
+    run(
+      `INSERT INTO user_activity_logs (id, user_id, username, role, action_type, action_detail, ip_address, user_agent, status, metadata, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        userId || null,
+        username || 'anonymous',
+        role || null,
+        actionType,
+        actionDetail,
+        ipAddress || '127.0.0.1',
+        userAgent || 'Unknown',
+        status,
+        metaStr,
+        timestamp
+      ]
+    );
+
+    // 2. Also record in audit_logs for backward compatibility
+    run(
+      `INSERT INTO audit_logs (id, user_id, username, action, target_table, record_id, accessed_fields, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        userId || 'system',
+        username || 'anonymous',
+        actionType,
+        'user_activity_logs',
+        null,
+        metaStr || actionDetail,
+        timestamp
+      ]
+    );
+  } catch (err) {
+    console.error('[Activity Logger Error] Failed to write user activity log:', err);
+  }
+}
+
+/**
  * Express Middleware to audit sensitive API calls
  */
 function auditRoute(actionName, targetTable) {
@@ -55,5 +102,7 @@ function auditRoute(actionName, targetTable) {
 
 module.exports = {
   logAudit,
+  logActivity,
   auditRoute
 };
+

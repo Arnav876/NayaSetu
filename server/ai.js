@@ -185,7 +185,7 @@ function processChatQuery(userId, userQuery, language = 'en') {
       };
     } else {
       // Check if request is pending
-      const reqPending = query('SELECT status FROM legal_aid_requests WHERE undertrial_id = ? AND status = "pending"', [prisoner.id]);
+      const reqPending = query("SELECT status FROM legal_aid_requests WHERE undertrial_id = ? AND status = 'pending'", [prisoner.id]);
       if (reqPending.length > 0) {
         return {
           text: language === 'hi'

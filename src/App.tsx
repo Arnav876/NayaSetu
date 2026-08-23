@@ -103,10 +103,14 @@ export default function App() {
         throw new Error(data.error || 'Registration failed');
       }
 
-      setSuccessMessage('Registration successful! You can now log in.');
-      setIsSignUpMode(false);
-      setUsernameInput(regUsername);
-      setPasswordInput(regPassword);
+      setSuccessMessage('Registration successful! Welcome to NyayaSetu.');
+      if (data.token && data.user) {
+        handleLoginSuccess(data.token, data.user);
+      } else {
+        setIsSignUpMode(false);
+        setUsernameInput(regUsername);
+        setPasswordInput(regPassword);
+      }
       setRegUsername('');
       setRegPassword('');
       setRegFullName('');

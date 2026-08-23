@@ -103,8 +103,8 @@ async function runTests() {
     );
 
     // Test 6: User Registration & Dynamic Login Authentication
-    const testUsername = 'test_jatin_' + Math.floor(Math.random() * 1000);
-    const testPassword = 'mySecurePassword';
+    const testUsername = 'test_prisoner_' + Math.floor(Math.random() * 1000);
+    const testPassword = 'mySecurePassword123';
     const { handleRegister, handleLogin } = require('./auth');
 
     let registerStatus = 0;
@@ -113,9 +113,13 @@ async function runTests() {
       body: {
         username: testUsername,
         password: testPassword,
-        role: 'admin',
-        fullName: 'Jatin Tester',
+        role: 'prisoner',
+        fullName: 'Rahul Verma',
         contactInfo: '9988776655'
+      },
+      headers: {
+        'x-forwarded-for': '192.168.1.105',
+        'user-agent': 'NyayaSetu-Test-Client'
       }
     };
     const mockRegRes = {
@@ -131,19 +135,32 @@ async function runTests() {
 
     handleRegister(mockRegReq, mockRegRes);
     assert(registerStatus === 201 || registerJson.success === true, 
-      `User Registration API successfully registered new user '${testUsername}'`);
+      `User Registration API successfully registered new prisoner user '${testUsername}'`);
 
-    // Verify user exists in SQLite
-    const userInDb = query('SELECT * FROM users WHERE username = ?', [testUsername])[0];
-    assert(userInDb !== undefined && userInDb.full_name === 'Jatin Tester', 
+    // Verify prisoner user exists in SQLite
+    const userInDb = query('SELECT * FROM users WHERE LOWER(username) = ?', [testUsername.toLowerCase()])[0];
+    assert(userInDb !== undefined && userInDb.full_name === 'Rahul Verma', 
       'Verified newly registered user exists in SQLite database with correct full name.');
 
-    // Test Login with newly registered user
+    // Verify automatic undertrial and case creation for registered prisoner
+    const undertrialInDb = query('SELECT * FROM undertrials WHERE user_id = ?', [userInDb.id])[0];
+    assert(undertrialInDb !== undefined && undertrialInDb.first_name === 'Rahul', 
+      `Verified undertrial profile auto-created for prisoner with number: ${undertrialInDb?.prisoner_number}`);
+
+    const caseInDb = query('SELECT * FROM cases WHERE undertrial_id = ?', [undertrialInDb.id])[0];
+    assert(caseInDb !== undefined && caseInDb.status === 'active', 
+      `Verified case record auto-created for prisoner with case number: ${caseInDb?.case_number}`);
+
+    // Test 7: Successful Login and Activity Logging
     let loginJson = {};
     const mockLoginReq = {
       body: {
-        username: testUsername,
+        username: testUsername.toUpperCase(), // Testing case-insensitivity
         password: testPassword
+      },
+      headers: {
+        'x-forwarded-for': '192.168.1.105',
+        'user-agent': 'NyayaSetu-Automated-Test-Runner'
       }
     };
     const mockLoginRes = {
@@ -157,8 +174,53 @@ async function runTests() {
     };
 
     handleLogin(mockLoginReq, mockLoginRes);
-    assert(loginJson.token !== undefined && loginJson.user.username === testUsername, 
-      'Verified newly registered user can successfully authenticate and receive a JWT token.');
+    assert(loginJson.token !== undefined && loginJson.user.username === testUsername.toLowerCase(), 
+      'Verified case-insensitive login succeeded and returned JWT token.');
+
+    // Verify LOGIN_SUCCESS was stored in SQLite database (user_activity_logs)
+    const successLogs = query(`
+      SELECT * FROM user_activity_logs 
+      WHERE username = ? AND action_type = 'LOGIN_SUCCESS' 
+      ORDER BY timestamp DESC LIMIT 1
+    `, [testUsername.toLowerCase()]);
+    assert(successLogs.length > 0 && successLogs[0].ip_address === '192.168.1.105', 
+      'Verified database stored login event in user_activity_logs with IP and User-Agent metadata.');
+
+    // Test 8: Failed Login Tracking in Database
+    let failedLoginJson = {};
+    let failedStatus = 0;
+    const mockBadLoginReq = {
+      body: {
+        username: testUsername,
+        password: 'wrong_password'
+      },
+      headers: {
+        'x-forwarded-for': '203.0.113.195',
+        'user-agent': 'Intruder-Test-Agent'
+      }
+    };
+    const mockBadLoginRes = {
+      status: function(code) {
+        failedStatus = code;
+        return this;
+      },
+      json: function(data) {
+        failedLoginJson = data;
+        return this;
+      }
+    };
+
+    handleLogin(mockBadLoginReq, mockBadLoginRes);
+    assert(failedStatus === 401, 'Verified invalid credentials returned 401 Unauthorized.');
+
+    // Verify LOGIN_FAILED was stored in SQLite database
+    const failedLogs = query(`
+      SELECT * FROM user_activity_logs 
+      WHERE username = ? AND action_type = 'LOGIN_FAILED' 
+      ORDER BY timestamp DESC LIMIT 1
+    `, [testUsername.toLowerCase()]);
+    assert(failedLogs.length > 0 && failedLogs[0].status === 'FAILED', 
+      'Verified failed login attempt was logged in database with status FAILED and reason.');
 
     console.log('----------------------------------------------------');
     console.log(`TEST SUMMARY: ${testsPassed} Passed, ${testsFailed} Failed.`);

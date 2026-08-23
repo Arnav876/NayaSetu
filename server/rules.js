@@ -11,8 +11,10 @@ const CHARGE_MAX_SENTENCES = {
 
 // Helper to calculate days between two ISO dates (YYYY-MM-DD)
 function getDaysDiff(date1Str, date2Str) {
+  if (!date1Str || !date2Str) return 0;
   const d1 = new Date(date1Str);
   const d2 = new Date(date2Str);
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return 0;
   const diffTime = Math.abs(d2 - d1);
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 }
