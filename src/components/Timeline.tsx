@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, ShieldAlert, CheckCircle2, AlertCircle, Clock, Check } from 'lucide-react';
+import { Calendar, CheckCircle2, AlertCircle, Clock, Check } from 'lucide-react';
 
 export interface TimelineEvent {
   id: string;
@@ -50,8 +50,7 @@ export const Timeline: React.FC<TimelineProps> = ({ events = [] }) => {
       {sortedEvents.length === 0 ? (
         <div className="text-slate-500 text-sm italic py-4">No timeline events recorded for this case.</div>
       ) : (
-        sortedEvents.map((event, index) => {
-          const isLast = index === sortedEvents.length - 1;
+        sortedEvents.map((event) => {
           return (
             <div key={event.id} className="relative group">
               {/* Dot positioning */}

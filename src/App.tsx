@@ -122,43 +122,6 @@ export default function App() {
     }
   };
 
-  // One-click Demo Login shortcut
-  const handleDemoLogin = async (roleUsername: string, rolePassword: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: roleUsername, password: rolePassword })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      handleLoginSuccess(data.token, data.user);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Floating switcher login helper
-  const handleQuickSwap = (roleName: string) => {
-    const credentials: Record<string, [string, string]> = {
-      prison_official: ['prison_admin', 'password123'],
-      dlsa_officer: ['dlsa_rahul', 'password123'],
-      lawyer: ['lawyer_shreya', 'password123'],
-      prisoner: ['amit_sharma', 'prisoner123'],
-      family_member: ['amit_family', 'family123'],
-      admin: ['admin_root', 'password123']
-    };
-
-    const creds = credentials[roleName];
-    if (creds) {
-      handleDemoLogin(creds[0], creds[1]);
-    }
-  };
-
   // Select Dashboard based on user role
   const renderDashboard = () => {
     if (!user || !token) return null;
@@ -284,12 +247,12 @@ export default function App() {
               {!isSignUpMode ? (
                 <form onSubmit={handleFormLogin} className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 uppercase font-semibold block">Username</label>
+                    <label className="text-[10px] text-slate-400 uppercase font-semibold block">Username or Prisoner ID</label>
                     <div className="relative">
                       <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
                       <input
                         type="text"
-                        placeholder="Enter username"
+                        placeholder="e.g. prison_admin, dlsa_rahul, or UT ID"
                         value={usernameInput}
                         onChange={(e) => setUsernameInput(e.target.value)}
                         className="w-full glass-input pl-9 text-xs"
@@ -405,86 +368,16 @@ export default function App() {
                 </form>
               )}
             </div>
-
-            {/* Quick Demo logins banner */}
-            <div className="glass-panel p-5 space-y-3.5 border-slate-800/80 bg-slate-900/30">
-              <h3 className="text-xs font-bold text-slate-350 flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-amber-500" />
-                Quick-Select Demo Accounts (SIH Evaluator Panel)
-              </h3>
-              <div className="grid grid-cols-2 gap-2 text-[10px]">
-                <button
-                  onClick={() => handleDemoLogin('prison_admin', 'password123')}
-                  className="p-2 bg-slate-950/80 border border-slate-850 hover:border-slate-700 text-left rounded-lg text-slate-300 font-semibold"
-                >
-                  <div className="text-sky-400">Prison Official</div>
-                  <div>Tihar Warden Rathore</div>
-                </button>
-                <button
-                  onClick={() => handleDemoLogin('dlsa_rahul', 'password123')}
-                  className="p-2 bg-slate-950/80 border border-slate-850 hover:border-slate-700 text-left rounded-lg text-slate-300 font-semibold"
-                >
-                  <div className="text-emerald-400">DLSA Officer</div>
-                  <div>DLSA Secretary Rahul</div>
-                </button>
-                <button
-                  onClick={() => handleDemoLogin('lawyer_shreya', 'password123')}
-                  className="p-2 bg-slate-950/80 border border-slate-850 hover:border-slate-700 text-left rounded-lg text-slate-300 font-semibold"
-                >
-                  <div className="text-amber-400">Advocate Counsel</div>
-                  <div>Panel Lawyer Shreya</div>
-                </button>
-                <button
-                  onClick={() => handleDemoLogin('amit_sharma', 'prisoner123')}
-                  className="p-2 bg-slate-950/80 border border-slate-850 hover:border-slate-700 text-left rounded-lg text-slate-300 font-semibold"
-                >
-                  <div className="text-violet-400">Prisoner Dashboard</div>
-                  <div>Amit Sharma (Bail Pending)</div>
-                </button>
-                <button
-                  onClick={() => handleDemoLogin('amit_family', 'family123')}
-                  className="p-2 bg-slate-950/80 border border-slate-850 hover:border-slate-700 text-left rounded-lg text-slate-300 font-semibold"
-                >
-                  <div className="text-pink-400">Family Account</div>
-                  <div>Amit's Spouse (Restricted)</div>
-                </button>
-                <button
-                  onClick={() => handleDemoLogin('admin_root', 'password123')}
-                  className="p-2 bg-slate-950/80 border border-slate-850 hover:border-slate-700 text-left rounded-lg text-slate-300 font-semibold"
-                >
-                  <div className="text-rose-400">System Admin</div>
-                  <div>Security Audit Trails</div>
-                </button>
-              </div>
-            </div>
           </div>
         )}
       </main>
 
-      {/* Floating Demo Role Switcher (Active when logged in) */}
-      {token && user && (
-        <div className="fixed bottom-4 right-4 z-50 glass-panel p-3 border-sky-500/30 bg-slate-950/90 shadow-2xl flex items-center gap-2">
-          <span className="text-[9px] uppercase font-bold text-sky-400 tracking-wider">Quick Swapper:</span>
-          <select
-            value={user.role}
-            onChange={(e) => handleQuickSwap(e.target.value)}
-            className="bg-slate-900 border border-slate-800 text-[10px] rounded py-1 px-1.5 focus:outline-none text-slate-200"
-          >
-            <option value="prison_official">Prison Warden</option>
-            <option value="dlsa_officer">DLSA Secretary</option>
-            <option value="lawyer">Advocate Shreya</option>
-            <option value="prisoner">Prisoner Portal</option>
-            <option value="family_member">Family Member</option>
-            <option value="admin">System Admin</option>
-          </select>
-        </div>
-      )}
-
       {/* Footer Pitch */}
-      <footer className="max-w-7xl mx-auto w-full text-center border-t border-slate-800/40 pt-4 mt-8">
-        <p className="text-[10px] md:text-xs text-slate-500">
+      <footer className="max-w-7xl mx-auto w-full text-center border-t border-slate-800/40 pt-4 mt-8 flex flex-col sm:flex-row items-center justify-between text-[10px] md:text-xs text-slate-500 gap-2">
+        <p>
           NyayaSetu ensures that no undertrial's legal journey gets lost between the prison, lawyer, legal-aid authority and court.
         </p>
+        <span className="text-slate-600">Enterprise Gov Platform • End-to-End Encrypted</span>
       </footer>
     </div>
   );

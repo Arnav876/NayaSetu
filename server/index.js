@@ -1,8 +1,8 @@
 const express = require('express');
 const { query, run, uuid } = require('./db');
 const { evaluateRules } = require('./rules');
-const { mockSummarizeDocument, processChatQuery } = require('./ai');
-const { authenticateToken, requireRole, handleLogin, handleRegister } = require('./auth');
+const { mockSummarizeDocument, processChatQuery, getChatHistory } = require('./ai');
+const { authenticateToken, requireRole, handleLogin, handleRegister, hashPassword } = require('./auth');
 const { logAudit, logActivity, auditRoute } = require('./audit');
 
 const app = express();
@@ -262,6 +262,148 @@ app.get('/api/undertrials/:id', authenticateToken, (req, res) => {
   }
 });
 
+// POST /api/undertrials - Manual Undertrial Entry (Restricted to Prison Officials and Admins)
+app.post('/api/undertrials', authenticateToken, requireRole(['prison_official', 'admin']), (req, res) => {
+  const {
+    firstName,
+    lastName,
+    prisonerNumber,
+    dateOfArrest,
+    remandDate,
+    detentionFacility,
+    primaryCharge,
+    sections,
+    dateOfBirth,
+    gender,
+    caseNumber,
+    courtName,
+    judgeName
+  } = req.body;
+
+  if (!firstName || !lastName || !dateOfArrest || !remandDate || !detentionFacility) {
+    return res.status(400).json({ error: 'First Name, Last Name, Arrest Date, Remand Date, and Facility are required.' });
+  }
+
+  const pNumber = prisonerNumber && prisonerNumber.trim() ? prisonerNumber.trim() : `UT-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+  const cleanFirstName = firstName.trim();
+  const cleanLastName = lastName.trim();
+  const cleanFacility = detentionFacility.trim();
+  const cleanCharge = primaryCharge ? primaryCharge.trim() : 'Under Investigation';
+  const cleanSections = sections ? sections.trim() : 'BNS Sec 303';
+  const cleanDob = dateOfBirth || '1995-01-01';
+  const cleanGender = gender || 'Male';
+  const cleanCaseNo = caseNumber ? caseNumber.trim() : `CNR-DLHC-00${Math.floor(100000 + Math.random() * 900000)}-2026`;
+  const cleanCourt = courtName ? courtName.trim() : 'Metropolitan Magistrate Court, Delhi';
+  const cleanJudge = judgeName ? judgeName.trim() : 'Metropolitan Magistrate';
+
+  try {
+    // 1. Create a User Account for the Undertrial
+    const baseUsername = `${cleanFirstName.toLowerCase().replace(/[^a-z0-9]/g, '')}_${cleanLastName.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    let pUsername = baseUsername;
+    const existing = query('SELECT id FROM users WHERE LOWER(username) = ?', [pUsername]);
+    if (existing.length > 0) {
+      pUsername = `${baseUsername}_${Math.floor(100 + Math.random() * 900)}`;
+    }
+
+    const userId = uuid();
+    const passwordHash = hashPassword('prisoner123');
+
+    run(
+      'INSERT INTO users (id, username, password_hash, role, full_name, contact_info) VALUES (?, ?, ?, ?, ?, ?)',
+      [userId, pUsername, passwordHash, 'prisoner', `${cleanFirstName} ${cleanLastName}`, `Detention: ${cleanFacility}`]
+    );
+
+    // 2. Create Undertrial Record
+    const undertrialId = uuid();
+    run(
+      `INSERT INTO undertrials (
+        id, user_id, prisoner_number, first_name, last_name, date_of_birth, gender,
+        date_of_arrest, remand_date, primary_charge, sections, detention_facility,
+        bail_status, bail_amount
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_applied', 0)`,
+      [
+        undertrialId,
+        userId,
+        pNumber,
+        cleanFirstName,
+        cleanLastName,
+        cleanDob,
+        cleanGender,
+        dateOfArrest,
+        remandDate,
+        cleanCharge,
+        cleanSections,
+        cleanFacility
+      ]
+    );
+
+    // 3. Create Case Record
+    const caseId = uuid();
+    run(
+      'INSERT INTO cases (id, undertrial_id, case_number, court_name, judge_name, status) VALUES (?, ?, ?, ?, ?, ?)',
+      [caseId, undertrialId, cleanCaseNo, cleanCourt, cleanJudge, 'active']
+    );
+
+    // 4. Initialize Justice Timeline Events (Arrest & Remand)
+    run(
+      'INSERT INTO case_events (id, case_id, event_type, event_date, status, title, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [uuid(), caseId, 'arrest', dateOfArrest, 'done', 'Arrest', `Arrest registered on ${dateOfArrest}. Intake processed at ${cleanFacility}.`]
+    );
+
+    run(
+      'INSERT INTO case_events (id, case_id, event_type, event_date, status, title, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [uuid(), caseId, 'remand', remandDate, 'done', 'Initial Remand Order', `Produced before Magistrate. Remanded to judicial custody at ${cleanFacility}.`]
+    );
+
+    // 5. Initialize Legal Aid Request Queue entry
+    const legalAidId = uuid();
+    run(
+      'INSERT INTO legal_aid_requests (id, undertrial_id, request_type, request_date, status, assigned_lawyer_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [legalAidId, undertrialId, 'lawyer_assignment', remandDate, 'pending', null, 'Auto-generated legal aid intake request upon undertrial registration.']
+    );
+
+    // 6. Log in Audit Trail
+    logAudit(
+      req.user.id,
+      req.user.username,
+      'create_undertrial',
+      'undertrials',
+      undertrialId,
+      'first_name,last_name,prisoner_number,date_of_arrest,remand_date,detention_facility'
+    );
+
+    logActivity(
+      req.user.id,
+      req.user.username,
+      req.user.role,
+      'MANUAL_INTAKE_PRISONER',
+      `Manual intake created for undertrial ${cleanFirstName} ${cleanLastName} (${pNumber}) by ${req.user.full_name}`,
+      req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1',
+      req.headers['user-agent'] || 'Unknown',
+      'SUCCESS',
+      { undertrialId, prisonerNumber: pNumber, createdBy: req.user.username }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: `Undertrial ${cleanFirstName} ${cleanLastName} created successfully with ID ${pNumber}.`,
+      undertrial: {
+        id: undertrialId,
+        user_id: userId,
+        prisoner_number: pNumber,
+        first_name: cleanFirstName,
+        last_name: cleanLastName,
+        facility: cleanFacility,
+        username: pUsername,
+        case_number: cleanCaseNo
+      }
+    });
+  } catch (err) {
+    console.error('[Undertrial Create Error]', err);
+    res.status(500).json({ error: `Failed to create undertrial: ${err.message}` });
+  }
+});
+
 // 4. Action Required Engine (Module 2)
 app.get('/api/cases/action-items', authenticateToken, (req, res) => {
   const { role } = req.user;
@@ -300,10 +442,84 @@ app.get('/api/cases/action-items', authenticateToken, (req, res) => {
 // Get lawyer list for assignment
 app.get('/api/legal-aid/lawyers', authenticateToken, requireRole(['dlsa_officer', 'admin']), (req, res) => {
   try {
-    const lawyers = query("SELECT id, full_name, contact_info FROM users WHERE role = 'lawyer'");
+    const lawyers = query("SELECT id, username, full_name, contact_info FROM users WHERE role = 'lawyer'");
     res.json(lawyers);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch lawyer roster' });
+  }
+});
+
+// POST /api/legal-aid/lawyers - Manual Lawyer Entry (Restricted to DLSA Officers and Admins)
+app.post('/api/legal-aid/lawyers', authenticateToken, requireRole(['dlsa_officer', 'admin']), (req, res) => {
+  const { fullName, barRegistrationId, contactInfo, affiliation, password } = req.body;
+
+  if (!fullName || !fullName.trim()) {
+    return res.status(400).json({ error: 'Lawyer full name is required.' });
+  }
+
+  const cleanName = fullName.trim();
+  const cleanBarId = barRegistrationId ? barRegistrationId.trim() : '';
+  const cleanContact = contactInfo ? contactInfo.trim() : '';
+  const cleanAffiliation = affiliation ? affiliation.trim() : 'DLSA Panel';
+
+  // Construct contact details string
+  const contactDetails = [cleanContact, cleanBarId ? `Bar ID: ${cleanBarId}` : '', cleanAffiliation ? `(${cleanAffiliation})` : '']
+    .filter(Boolean)
+    .join(' • ');
+
+  // Generate username
+  const baseUsername = `lawyer_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+  let lawyerUsername = baseUsername;
+  const existing = query('SELECT id FROM users WHERE LOWER(username) = ?', [lawyerUsername]);
+  if (existing.length > 0) {
+    lawyerUsername = `${baseUsername}_${Math.floor(100 + Math.random() * 900)}`;
+  }
+
+  const lawyerId = uuid();
+  const passwordHash = hashPassword(password && password.trim() ? password.trim() : 'password123');
+
+  try {
+    run(
+      'INSERT INTO users (id, username, password_hash, role, full_name, contact_info) VALUES (?, ?, ?, ?, ?, ?)',
+      [lawyerId, lawyerUsername, passwordHash, 'lawyer', cleanName, contactDetails]
+    );
+
+    // Audit log
+    logAudit(
+      req.user.id,
+      req.user.username,
+      'create_lawyer',
+      'users',
+      lawyerId,
+      'username,full_name,contact_info,role'
+    );
+
+    logActivity(
+      req.user.id,
+      req.user.username,
+      req.user.role,
+      'MANUAL_ENTRY_LAWYER',
+      `Manual lawyer enrollment for ${cleanName} (${cleanAffiliation}) created by ${req.user.full_name}`,
+      req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1',
+      req.headers['user-agent'] || 'Unknown',
+      'SUCCESS',
+      { lawyerId, username: lawyerUsername, affiliation: cleanAffiliation, createdBy: req.user.username }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: `Lawyer ${cleanName} successfully added to the legal aid roster.`,
+      lawyer: {
+        id: lawyerId,
+        username: lawyerUsername,
+        full_name: cleanName,
+        contact_info: contactDetails,
+        role: 'lawyer'
+      }
+    });
+  } catch (err) {
+    console.error('[Lawyer Create Error]', err);
+    res.status(500).json({ error: `Failed to create lawyer profile: ${err.message}` });
   }
 });
 
@@ -474,6 +690,30 @@ app.post('/api/documents/confirm', authenticateToken, requireRole(['dlsa_officer
 });
 
 // 7. Ask NyayaSetu Chatbot (Module 8 & 9)
+app.get('/api/chat/history', authenticateToken, requireRole(['prisoner', 'admin']), (req, res) => {
+  const userId = req.user.id;
+  const limit = parseInt(req.query.limit) || 50;
+
+  try {
+    const history = getChatHistory(userId, limit);
+    
+    // Audit log history access
+    logAudit(
+      userId,
+      req.user.username,
+      'view_chat_history',
+      'ai_conversations',
+      userId,
+      'sender,message_text,topic,timestamp'
+    );
+
+    res.json(history);
+  } catch (err) {
+    console.error('[Chat History Error]', err);
+    res.status(500).json({ error: 'Failed to retrieve chat history' });
+  }
+});
+
 app.post('/api/chat', authenticateToken, requireRole(['prisoner', 'admin']), (req, res) => {
   const { query: userQuery, language } = req.body;
   const userId = req.user.id;

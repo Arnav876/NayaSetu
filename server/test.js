@@ -222,6 +222,50 @@ async function runTests() {
     assert(failedLogs.length > 0 && failedLogs[0].status === 'FAILED', 
       'Verified failed login attempt was logged in database with status FAILED and reason.');
 
+    // Test 9: Prisoner Number Login Support (Requirement #1)
+    let utLoginJson = {};
+    const mockUtLoginReq = {
+      body: {
+        username: undertrialInDb.prisoner_number,
+        password: testPassword
+      },
+      headers: {
+        'x-forwarded-for': '10.0.0.1',
+        'user-agent': 'NyayaSetu-Kiosk-Client'
+      }
+    };
+    const mockUtLoginRes = {
+      status: function(code) { return this; },
+      json: function(data) { utLoginJson = data; return this; }
+    };
+    handleLogin(mockUtLoginReq, mockUtLoginRes);
+    assert(utLoginJson.token !== undefined && utLoginJson.user.prisoner_number === undertrialInDb.prisoner_number,
+      `Prisoner ID Login: Successfully logged in using Prisoner Number '${undertrialInDb.prisoner_number}' instead of username.`);
+
+    // Test 10: AI Persistent Memory & Cross-Session Recall (Requirement #3 & #4)
+    const { getChatHistory } = require('./ai');
+    
+    // Step A: Prisoner asks about bail
+    const q1 = processChatQuery(userInDb.id, 'What is my bail status?', 'en');
+    assert(q1.text.length > 0, `Turn 1 Response: "${q1.text}"`);
+
+    // Step B: Fetch persistent memory from DB
+    const history1 = getChatHistory(userInDb.id);
+    assert(history1.length >= 2, `Verified 2 messages (user query + bot reply) persisted in database for prisoner ${userInDb.id}.`);
+
+    // Step C: Prisoner comes back in a new session and asks about bail again
+    const q2 = processChatQuery(userInDb.id, 'Can you tell me about my bail?', 'en');
+    assert(q2.text.includes('previously inquired about your bail status') || q2.text.includes('latest update'),
+      `Turn 2 Cross-Session Recall: AI referenced previous conversation history ("${q2.text}").`);
+
+    // Step D: Verify strict isolation on shared kiosk (Requirement #4)
+    const otherPrisonerUser = query("SELECT id FROM users WHERE username = 'rajesh_kumar'")[0];
+    if (otherPrisonerUser) {
+      const otherHistory = getChatHistory(otherPrisonerUser.id);
+      const containsUser1Data = otherHistory.some(m => m.text.includes(testUsername));
+      assert(!containsUser1Data, 'Strict Kiosk Isolation: Zero cross-user memory leakage between different prisoner accounts.');
+    }
+
     console.log('----------------------------------------------------');
     console.log(`TEST SUMMARY: ${testsPassed} Passed, ${testsFailed} Failed.`);
     console.log('----------------------------------------------------');

@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Timeline } from '../components/Timeline';
-import type { TimelineEvent } from '../components/Timeline';
 import { ActionItems } from '../components/ActionItems';
 import type { ActionItem } from '../components/ActionItems';
 import { DelayRadar } from '../components/DelayRadar';
 import { Chatbot } from '../components/Chatbot';
 import { 
-  Users, Calendar, FileText, UserCheck, AlertTriangle, ShieldCheck, 
-  Search, ShieldAlert, Award, FileSearch, LogOut, CheckCircle2, 
-  Send, Smartphone, HeartHandshake, Eye, RefreshCw, KeyRound, Check
+  Users, Calendar, FileText, UserCheck, AlertTriangle, 
+  Search, ShieldAlert, LogOut, CheckCircle2, 
+  Send, Smartphone, HeartHandshake, Eye, RefreshCw, KeyRound, 
+  UserPlus, Plus, X
 } from 'lucide-react';
 
 interface User {
@@ -33,10 +33,24 @@ export const PrisonDashboard: React.FC<DashboardProps> = ({ user, token, onLogou
   const [selectedUT, setSelectedUT] = useState<any | null>(null);
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [rehabProgram, setRehabProgram] = useState('Vocational Carpentry & Woodworking');
-  const [rehabStatus, setRehabStatus] = useState('enrolled');
   const [syncStatus, setSyncStatus] = useState<any | null>(null);
   const [syncing, setSyncing] = useState(false);
+
+  // Manual Prisoner Intake Form State
+  const [showAddPrisonerModal, setShowAddPrisonerModal] = useState(false);
+  const [newFirstName, setNewFirstName] = useState('');
+  const [newLastName, setNewLastName] = useState('');
+  const [newPrisonerNumber, setNewPrisonerNumber] = useState('');
+  const [newArrestDate, setNewArrestDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newRemandDate, setNewRemandDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newFacility, setNewFacility] = useState('Tihar Jail No. 4');
+  const [newCharge, setNewCharge] = useState('Theft (BNS Section 303)');
+  const [newSections, setNewSections] = useState('BNS Sec 303');
+  const [newCaseNumber, setNewCaseNumber] = useState('');
+  const [newCourtName, setNewCourtName] = useState('Patiala House Court, Delhi');
+  const [addingPrisoner, setAddingPrisoner] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addSuccess, setAddSuccess] = useState<string | null>(null);
 
   const fetchRoster = async () => {
     try {
@@ -82,6 +96,58 @@ export const PrisonDashboard: React.FC<DashboardProps> = ({ user, token, onLogou
     fetchActionItems();
   }, []);
 
+  const handleAddPrisoner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFirstName || !newLastName || !newArrestDate || !newRemandDate || !newFacility) return;
+    setAddingPrisoner(true);
+    setAddError(null);
+    setAddSuccess(null);
+
+    try {
+      const res = await fetch('/api/undertrials', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          firstName: newFirstName,
+          lastName: newLastName,
+          prisonerNumber: newPrisonerNumber,
+          dateOfArrest: newArrestDate,
+          remandDate: newRemandDate,
+          detentionFacility: newFacility,
+          primaryCharge: newCharge,
+          sections: newSections,
+          caseNumber: newCaseNumber,
+          courtName: newCourtName
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add undertrial');
+
+      setAddSuccess(data.message);
+      await fetchRoster();
+      if (data.undertrial?.id) {
+        fetchDetails(data.undertrial.id);
+      }
+
+      setTimeout(() => {
+        setShowAddPrisonerModal(false);
+        setAddSuccess(null);
+        setNewFirstName('');
+        setNewLastName('');
+        setNewPrisonerNumber('');
+        setNewCaseNumber('');
+      }, 1000);
+    } catch (err: any) {
+      setAddError(err.message);
+    } finally {
+      setAddingPrisoner(false);
+    }
+  };
+
   const handleSync = async () => {
     setSyncing(true);
     try {
@@ -101,7 +167,7 @@ export const PrisonDashboard: React.FC<DashboardProps> = ({ user, token, onLogou
   const enrollRehab = async () => {
     if (!selectedUT) return;
     try {
-      const res = await fetch('/api/rehabilitation/attendance', {
+      await fetch('/api/rehabilitation/attendance', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -140,6 +206,13 @@ export const PrisonDashboard: React.FC<DashboardProps> = ({ user, token, onLogou
         </div>
         <div className="flex items-center gap-3">
           <button
+            onClick={() => setShowAddPrisonerModal(true)}
+            className="flex items-center gap-1.5 py-2 px-3.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all active:scale-95 border border-emerald-500/30"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            Add New Prisoner
+          </button>
+          <button
             onClick={handleSync}
             disabled={syncing}
             className="flex items-center gap-2 py-2 px-4 rounded-lg bg-slate-900 border border-slate-800 text-xs font-semibold hover:border-slate-600 disabled:opacity-50 text-slate-200"
@@ -157,6 +230,174 @@ export const PrisonDashboard: React.FC<DashboardProps> = ({ user, token, onLogou
         </div>
       </div>
 
+      {/* Add New Prisoner Modal */}
+      {showAddPrisonerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="glass-panel w-full max-w-lg p-6 bg-slate-900 border-slate-750 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-bold text-slate-100 text-sm">Manual Undertrial Intake & Registration</h3>
+              </div>
+              <button onClick={() => setShowAddPrisonerModal(false)} className="text-slate-400 hover:text-white p-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {addError && (
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-400 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                <span>{addError}</span>
+              </div>
+            )}
+
+            {addSuccess && (
+              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{addSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleAddPrisoner} className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">First Name *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Ramesh"
+                    value={newFirstName}
+                    onChange={(e) => setNewFirstName(e.target.value)}
+                    className="w-full glass-input text-xs"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">Last Name *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Yadav"
+                    value={newLastName}
+                    onChange={(e) => setNewLastName(e.target.value)}
+                    className="w-full glass-input text-xs"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">Prisoner UT ID (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="Auto-generated if empty"
+                    value={newPrisonerNumber}
+                    onChange={(e) => setNewPrisonerNumber(e.target.value)}
+                    className="w-full glass-input text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">Detention Facility *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Tihar Jail No. 4"
+                    value={newFacility}
+                    onChange={(e) => setNewFacility(e.target.value)}
+                    className="w-full glass-input text-xs"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">Date of Arrest *</label>
+                  <input
+                    type="date"
+                    value={newArrestDate}
+                    onChange={(e) => setNewArrestDate(e.target.value)}
+                    className="w-full glass-input text-xs"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">First Remand Date *</label>
+                  <input
+                    type="date"
+                    value={newRemandDate}
+                    onChange={(e) => setNewRemandDate(e.target.value)}
+                    className="w-full glass-input text-xs"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">Primary Charge</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Theft (BNS Section 303)"
+                    value={newCharge}
+                    onChange={(e) => setNewCharge(e.target.value)}
+                    className="w-full glass-input text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">Legal Sections</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. BNS Sec 303"
+                    value={newSections}
+                    onChange={(e) => setNewSections(e.target.value)}
+                    className="w-full glass-input text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">Case CNR / FIR Reference</label>
+                  <input
+                    type="text"
+                    placeholder="Auto-generated if empty"
+                    value={newCaseNumber}
+                    onChange={(e) => setNewCaseNumber(e.target.value)}
+                    className="w-full glass-input text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">Assigned Court</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Patiala House Court, Delhi"
+                    value={newCourtName}
+                    onChange={(e) => setNewCourtName(e.target.value)}
+                    className="w-full glass-input text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddPrisonerModal(false)}
+                  className="flex-1 py-2 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={addingPrisoner}
+                  className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-50"
+                >
+                  {addingPrisoner ? 'Creating Record...' : 'Create Undertrial Record'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {syncStatus && (
         <div className="p-4 rounded-xl border border-sky-500/30 bg-sky-500/5 text-sky-300 text-xs flex justify-between items-center">
           <div>
@@ -173,9 +414,17 @@ export const PrisonDashboard: React.FC<DashboardProps> = ({ user, token, onLogou
           <div className="glass-panel p-5 space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="font-bold text-slate-200 text-sm">Undertrial Custody Roster</h3>
-              <span className="text-[10px] bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-slate-400 font-mono">
-                Count: {filteredUndertrials.length}
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowAddPrisonerModal(true)}
+                  className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-[10px] font-bold text-white flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> Add
+                </button>
+                <span className="text-[10px] bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-slate-400 font-mono">
+                  Count: {filteredUndertrials.length}
+                </span>
+              </div>
             </div>
             
             <div className="relative">
@@ -334,7 +583,6 @@ export const LawyerDashboard: React.FC<DashboardProps> = ({ user, token, onLogou
   const [selectedClient, setSelectedClient] = useState<any | null>(null);
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [summaryData, setSummaryData] = useState<any | null>(null);
-  const [rawText, setRawText] = useState('');
   const [uploading, setUploading] = useState(false);
   const [editableExtracted, setEditableExtracted] = useState<any | null>(null);
 
@@ -635,6 +883,17 @@ export const DlsaDashboard: React.FC<DashboardProps> = ({ user, token, onLogout 
   const [selectedLawyerId, setSelectedLawyerId] = useState('');
   const [activeTab, setActiveTab] = useState<'queue' | 'flags' | 'radar'>('queue');
 
+  // Manual Lawyer Entry Form State
+  const [showAddLawyerModal, setShowAddLawyerModal] = useState(false);
+  const [newLawyerName, setNewLawyerName] = useState('');
+  const [newBarId, setNewBarId] = useState('');
+  const [newLawyerContact, setNewLawyerContact] = useState('');
+  const [newAffiliation, setNewAffiliation] = useState('DLSA Panel');
+  const [newLawyerPassword, setNewLawyerPassword] = useState('password123');
+  const [addingLawyer, setAddingLawyer] = useState(false);
+  const [addLawyerError, setAddLawyerError] = useState<string | null>(null);
+  const [addLawyerSuccess, setAddLawyerSuccess] = useState<string | null>(null);
+
   const fetchQueue = async () => {
     try {
       const res = await fetch('/api/legal-aid/queue', {
@@ -654,7 +913,7 @@ export const DlsaDashboard: React.FC<DashboardProps> = ({ user, token, onLogout 
       });
       const data = await res.json();
       setLawyers(data);
-      if (data.length > 0) setSelectedLawyerId(data[0].id);
+      if (data.length > 0 && !selectedLawyerId) setSelectedLawyerId(data[0].id);
     } catch (err) {
       console.error(err);
     }
@@ -677,6 +936,52 @@ export const DlsaDashboard: React.FC<DashboardProps> = ({ user, token, onLogout 
     fetchLawyers();
     fetchActionItems();
   }, []);
+
+  const handleAddLawyer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLawyerName.trim()) return;
+    setAddingLawyer(true);
+    setAddLawyerError(null);
+    setAddLawyerSuccess(null);
+
+    try {
+      const res = await fetch('/api/legal-aid/lawyers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          fullName: newLawyerName,
+          barRegistrationId: newBarId,
+          contactInfo: newLawyerContact,
+          affiliation: newAffiliation,
+          password: newLawyerPassword
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add lawyer');
+
+      setAddLawyerSuccess(data.message);
+      await fetchLawyers();
+      if (data.lawyer?.id) {
+        setSelectedLawyerId(data.lawyer.id);
+      }
+
+      setTimeout(() => {
+        setShowAddLawyerModal(false);
+        setAddLawyerSuccess(null);
+        setNewLawyerName('');
+        setNewBarId('');
+        setNewLawyerContact('');
+      }, 1000);
+    } catch (err: any) {
+      setAddLawyerError(err.message);
+    } finally {
+      setAddingLawyer(false);
+    }
+  };
 
   const handleAssign = async () => {
     if (!selectedReq || !selectedLawyerId) return;
@@ -718,6 +1023,13 @@ export const DlsaDashboard: React.FC<DashboardProps> = ({ user, token, onLogout 
         </div>
         
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowAddLawyerModal(true)}
+            className="flex items-center gap-1.5 py-2 px-3.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all active:scale-95 border border-emerald-500/30"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            Add New Lawyer
+          </button>
           <div className="flex rounded-lg bg-slate-900 p-0.5 border border-slate-800">
             <button
               onClick={() => setActiveTab('queue')}
@@ -748,12 +1060,129 @@ export const DlsaDashboard: React.FC<DashboardProps> = ({ user, token, onLogout 
         </div>
       </div>
 
+      {/* Add New Lawyer Modal */}
+      {showAddLawyerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="glass-panel w-full max-w-md p-6 bg-slate-900 border-slate-750 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-bold text-slate-100 text-sm">Enroll New Legal-Aid Counsel / Lawyer</h3>
+              </div>
+              <button onClick={() => setShowAddLawyerModal(false)} className="text-slate-400 hover:text-white p-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {addLawyerError && (
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-400 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                <span>{addLawyerError}</span>
+              </div>
+            )}
+
+            {addLawyerSuccess && (
+              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{addLawyerSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleAddLawyer} className="space-y-3.5 text-xs">
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 uppercase font-semibold block">Lawyer Full Name *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Adv. Meera Sen"
+                  value={newLawyerName}
+                  onChange={(e) => setNewLawyerName(e.target.value)}
+                  className="w-full glass-input text-xs"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">Bar Registration ID</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. D/1420/2021"
+                    value={newBarId}
+                    onChange={(e) => setNewBarId(e.target.value)}
+                    className="w-full glass-input text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold block">Affiliation</label>
+                  <select
+                    value={newAffiliation}
+                    onChange={(e) => setNewAffiliation(e.target.value)}
+                    className="w-full glass-input text-xs bg-slate-900 border border-slate-800 text-slate-200 py-2 px-3"
+                  >
+                    <option value="DLSA Panel">DLSA Panel Counsel</option>
+                    <option value="Pro-Bono Advocate">Pro-Bono Advocate</option>
+                    <option value="Legal Aid Volunteer">Legal Aid Volunteer</option>
+                    <option value="Senior Remand Advocate">Senior Remand Advocate</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 uppercase font-semibold block">Contact Details (Phone / Email)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 9811223344 or meera@bar.delhi.gov.in"
+                  value={newLawyerContact}
+                  onChange={(e) => setNewLawyerContact(e.target.value)}
+                  className="w-full glass-input text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 uppercase font-semibold block">Initial Password</label>
+                <input
+                  type="password"
+                  value={newLawyerPassword}
+                  onChange={(e) => setNewLawyerPassword(e.target.value)}
+                  className="w-full glass-input text-xs"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddLawyerModal(false)}
+                  className="flex-1 py-2 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={addingLawyer}
+                  className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-50"
+                >
+                  {addingLawyer ? 'Enrolling...' : 'Enroll Lawyer'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Conditional Rendering Tab Views */}
       {activeTab === 'queue' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Assignment Queue List */}
           <div className="lg:col-span-7 glass-panel p-5 space-y-4">
-            <h3 className="font-bold text-slate-200 text-sm">Legal Aid Advocate Request Queue</h3>
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-slate-200 text-sm">Legal Aid Advocate Request Queue</h3>
+              <button
+                onClick={() => setShowAddLawyerModal(true)}
+                className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-[10px] font-bold text-white flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" /> Add Lawyer
+              </button>
+            </div>
             <div className="overflow-x-auto w-full">
               <table className="w-full text-left">
                 <thead>
@@ -1004,6 +1433,7 @@ export const PrisonerPortal: React.FC<DashboardProps> = ({ user, token, onLogout
           <Chatbot 
             token={token} 
             userId={user.id} 
+            userName={`${profile.first_name} ${profile.last_name}`}
             undertrialId={profile.id}
             rehabProgramId={profile.rehabilitation?.[0]?.id}
           />
@@ -1179,6 +1609,7 @@ export const PrisonerKiosk: React.FC<PrisonerKioskProps> = ({ user, token, onLog
         <Chatbot 
           token={token} 
           userId={user.id} 
+          userName={`${profile.first_name} ${profile.last_name}`}
           isKiosk={true} 
           onSessionReset={onExitKiosk}
           rehabProgramId={profile.rehabilitation?.[0]?.id}

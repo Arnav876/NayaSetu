@@ -66,7 +66,15 @@ function handleLogin(req, res) {
   const cleanUsername = username.toLowerCase().trim();
 
   try {
-    const user = query('SELECT * FROM users WHERE LOWER(username) = ?', [cleanUsername])[0];
+    let user = query('SELECT * FROM users WHERE LOWER(username) = ?', [cleanUsername])[0];
+    
+    // Support login using Prisoner Number (e.g. UT-2026-1044)
+    if (!user) {
+      const ut = query('SELECT user_id FROM undertrials WHERE UPPER(prisoner_number) = ?', [username.toUpperCase().trim()])[0];
+      if (ut && ut.user_id) {
+        user = query('SELECT * FROM users WHERE id = ?', [ut.user_id])[0];
+      }
+    }
     
     if (!user || !verifyPassword(password, user.password_hash)) {
       logActivity(
@@ -83,9 +91,15 @@ function handleLogin(req, res) {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
+    let prisonerNumber = null;
+    if (user.role === 'prisoner') {
+      const ut = query('SELECT prisoner_number FROM undertrials WHERE user_id = ?', [user.id])[0];
+      if (ut) prisonerNumber = ut.prisoner_number;
+    }
+
     // Sign JWT
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, name: user.full_name },
+      { id: user.id, username: user.username, role: user.role, name: user.full_name, prisoner_number: prisonerNumber },
       JWT_SECRET,
       { expiresIn: '8h' }
     );
@@ -100,7 +114,7 @@ function handleLogin(req, res) {
       ip,
       userAgent,
       'SUCCESS',
-      { full_name: user.full_name, role: user.role }
+      { full_name: user.full_name, role: user.role, prisoner_number: prisonerNumber }
     );
 
     res.json({
@@ -109,7 +123,8 @@ function handleLogin(req, res) {
         id: user.id,
         username: user.username,
         role: user.role,
-        full_name: user.full_name
+        full_name: user.full_name,
+        prisoner_number: prisonerNumber
       }
     });
   } catch (err) {
@@ -238,6 +253,7 @@ module.exports = {
   requireRole,
   handleLogin,
   handleRegister,
+  hashPassword,
   JWT_SECRET
 };
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Mic, MicOff, Volume2, VolumeX, Shield, AlertTriangle, RotateCcw, CheckSquare, Clock } from 'lucide-react';
+import { Send, Mic, MicOff, Volume2, VolumeX, Shield, AlertTriangle, CheckSquare, Clock } from 'lucide-react';
 
 interface Message {
   sender: 'user' | 'bot';
@@ -11,6 +11,7 @@ interface Message {
 interface ChatbotProps {
   token: string;
   userId: string;
+  userName?: string;
   isKiosk?: boolean;
   onSessionReset?: () => void;
   rehabProgramId?: string; // Optional program ID for voice attendance check-in
@@ -20,6 +21,7 @@ interface ChatbotProps {
 export const Chatbot: React.FC<ChatbotProps> = ({ 
   token, 
   userId, 
+  userName,
   isKiosk = false, 
   onSessionReset,
   rehabProgramId,
@@ -35,7 +37,6 @@ export const Chatbot: React.FC<ChatbotProps> = ({
   const chatEndRef = useRef<HTMLDivElement>(null);
   
   const recognitionRef = useRef<any>(null);
-  const timeoutIdRef = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -66,16 +67,60 @@ export const Chatbot: React.FC<ChatbotProps> = ({
     }
   }, [language]);
 
-  // Language Change Lang Sync
+  // Load persistent history strictly scoped to this authenticated userId
   useEffect(() => {
-    // Insert welcome greeting
-    const welcome = language === 'hi'
-      ? "नमस्ते! मैं आपका न्यायसेतु सहायक हूँ। मैं आपकी सुनवाई, ज़मानत और वकील की जानकारी दे सकता हूँ। (यह सत्र 30 सेकंड की निष्क्रियता के बाद समाप्त हो जाएगा)"
-      : "Hello! I am your NyayaSetu assistant. I can fetch your hearing dates, bail status, and lawyer info. (This session will reset after 30s of inactivity)";
-    setMessages([
-      { sender: 'bot', text: welcome, timestamp: new Date() }
-    ]);
-  }, [language]);
+    // Immediately cancel any ongoing speech and clear existing messages to prevent session leakage
+    window.speechSynthesis.cancel();
+    setMessages([]);
+    setQuery('');
+
+    let isMounted = true;
+
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch('/api/chat/history', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error('Failed to load history');
+        const data = await res.json();
+
+        if (isMounted) {
+          if (Array.isArray(data) && data.length > 0) {
+            setMessages(data.map((m: any) => ({
+              sender: m.sender,
+              text: m.text,
+              timestamp: new Date(m.timestamp),
+              escalated: m.escalated
+            })));
+          } else {
+            // Welcome greeting for new session
+            const welcome = language === 'hi'
+              ? `नमस्ते${userName ? ` ${userName}` : ''}! मैं आपका न्यायसेतु सहायक हूँ। मैं आपकी सुनवाई, ज़मानत और वकील की जानकारी दे सकता हूँ।`
+              : `Hello${userName ? ` ${userName}` : ''}! I am your NyayaSetu assistant. I can fetch your hearing dates, bail status, and lawyer info.`;
+            setMessages([
+              { sender: 'bot', text: welcome, timestamp: new Date() }
+            ]);
+          }
+        }
+      } catch (err) {
+        if (isMounted) {
+          const welcome = language === 'hi'
+            ? `नमस्ते${userName ? ` ${userName}` : ''}! मैं आपका न्यायसेतु सहायक हूँ।`
+            : `Hello${userName ? ` ${userName}` : ''}! I am your NyayaSetu assistant.`;
+          setMessages([
+            { sender: 'bot', text: welcome, timestamp: new Date() }
+          ]);
+        }
+      }
+    };
+
+    fetchHistory();
+
+    return () => {
+      isMounted = false;
+      window.speechSynthesis.cancel();
+    };
+  }, [userId, token, language]);
 
   // Inactivity timeout for shared Kiosk mode (Module 9)
   useEffect(() => {

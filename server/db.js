@@ -143,6 +143,19 @@ function initDb() {
       metadata TEXT, -- JSON string
       timestamp TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS ai_conversations (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      undertrial_id TEXT NOT NULL,
+      sender TEXT NOT NULL, -- 'user' | 'bot'
+      message_text TEXT NOT NULL,
+      topic TEXT, -- 'bail', 'hearing', 'lawyer', 'documents', 'general', 'escalation'
+      escalated INTEGER DEFAULT 0,
+      timestamp TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id),
+      FOREIGN KEY(undertrial_id) REFERENCES undertrials(id)
+    );
   `);
   console.log('[Database] Database tables initialized successfully.');
 }
